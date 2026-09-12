@@ -1,9 +1,17 @@
 <script>
   import { onMount } from "svelte";
     import { goto, hasPrevMenu, prevMenu } from "../parser/script";
+  import { progress } from "../stores/progress";
 
   export let menuStr;
   export let onComplete;
+  // exit to the webtypist main menu (shown on top-level script menus)
+  export let onExit = () => {};
+  // file name of the loaded script — used to look up completed lessons
+  export let fileName = null;
+  // called when the user picks an option (label, display text)
+  export let onSelect = null;
+
   let showBack = false;
   let highlighted = 0;
   $: menuStr, showBack = hasPrevMenu()
@@ -11,6 +19,7 @@
   // first line is the title of the menu
   $: menuOptions = menuLines.slice(1);
   $: title = menuLines[0]?.content ?? "";
+  $: completedSet = new Set(Object.keys($progress?.completed?.[fileName] ?? {}));
 
 
   function getLabelAndContent(str) {
@@ -29,9 +38,15 @@
     return marr;
   }
 
+  function goBack() {
+    prevMenu();
+    onComplete();
+  }
+
   function handleSelectOption(option) {
     if (!option) return;
     goto(option.label);
+    onSelect?.(option.label, option.content);
     onComplete();
   }
 
@@ -52,6 +67,12 @@
         else if (e.key === "Enter") {
           handleSelectOption(menuOptions[highlighted])
         }
+        // Escape goes up one level: parent menu, or the main menu
+        // when this is a top-level script menu
+        else if (e.key === "Escape") {
+          if (showBack) goBack();
+          else onExit();
+        }
       }
     }
     document.addEventListener("keydown", handleNavKeys);
@@ -60,7 +81,9 @@
 
 </script>
 {#if showBack}
-<button class="inlineBtn" on:click={() => {prevMenu(); onComplete()}}>← Back</button>
+<button class="inlineBtn" on:click={goBack}>← Back</button>
+{:else}
+<button class="inlineBtn" on:click={onExit}>← Main menu</button>
 {/if}
 <div>
   <h4>{title}</h4>
@@ -78,9 +101,10 @@
       role="button"
       class="inlineBtn"
       class:highlighted={highlighted === i}
+      class:completed={completedSet.has(option.label)}
       on:click|preventDefault={() => {
         handleSelectOption(option);
-      }}><b>{option.content}</b></a
+      }}><b>{completedSet.has(option.label) ? "✓ " : ""}{option.content}</b></a
     >
   {/each}
 </div>
@@ -96,5 +120,8 @@
   }
   .highlighted {
     color: #b0b4ff;
+  }
+  .completed {
+    opacity: 0.55;
   }
 </style>

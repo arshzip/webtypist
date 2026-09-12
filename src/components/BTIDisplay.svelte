@@ -5,6 +5,8 @@
   import { instruction, title } from "../stores/textstore";
   import { backToMenu, canBackToMenu } from "../parser/script";
   export let onComplete;
+  // exit to the webtypist main menu (shown when there's no menu to go back to)
+  export let onExit = () => {};
   // action passed as prop to hide Nav during drills
   export let action;
 
@@ -19,6 +21,8 @@
       onComplete();
     }}>← Back</button
   >
+{:else}
+  <button class="inlineBtn" on:click={onExit}>← Main menu</button>
 {/if}
 <div>
   <h4 id="btiTitle">{$title}</h4>

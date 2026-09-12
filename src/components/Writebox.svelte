@@ -7,6 +7,9 @@
   let wc = wrongCharUtils();
   let failed = false;
   export let onComplete;
+  // called every time a drill is finished without failing
+  // (used for lesson completion tracking)
+  export let onDrillPassed = () => {};
   $: $text, handleTextChange();
   onMount(() => {
     reset();
@@ -62,6 +65,7 @@
       accuracy: $accuracy,
     });
     failed = !$practice && wc.count() / $size > $maxError;
+    if (!failed) onDrillPassed();
     // typist completed drill with nonpersistent error
     // set error as default for further drills
     if (!failed && !$persistError) {

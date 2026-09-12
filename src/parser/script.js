@@ -199,3 +199,59 @@ export function setInputScript(script) {
 export function skipLine() {
   getNextLine();
 }
+
+export function getCurrentMenuLabel() {
+  return global_menu_history[global_menu_history.length - 1] ?? "";
+}
+
+export function getCurrentLabel() {
+  return prevLabel;
+}
+
+export function isScriptLoaded() {
+  // note: "".split("\n") yields [""], so check for actual content
+  return global_typeArr.some((line) => line.trim().length > 0);
+}
+
+function saveParserState() {
+  return { index: global_index, line: global_line, label: prevLabel, menuLen: global_menu_history.length };
+}
+
+function restoreParserState(s) {
+  global_index = s.index;
+  global_line = s.line;
+  prevLabel = s.label;
+  global_menu_history.length = s.menuLen;
+}
+
+// Statically walks a menu option's section (the code executed after
+// jumping to optionLabel, up to the next sibling option of the same menu,
+// a submenu, or the end of the script) WITHOUT disturbing the live parser
+// state. Reports how many drills the section contains and which labels
+// belong to it — used for lesson completion tracking.
+export function analyzeSection(optionLabel, siblingLabels) {
+  const saved = saveParserState();
+  const siblings = new Set(siblingLabels);
+  siblings.delete(optionLabel);
+  try {
+    goto(optionLabel);
+    const labels = new Set();
+    let drills = 0;
+    for (let guard = 0; guard < 10000; guard++) {
+      if (siblings.has(prevLabel)) break;
+      const action = nextScriptAction();
+      if (action.type === EXIT || action.type === MENU) break;
+      if (siblings.has(prevLabel)) break; // execution entered the next section
+      if (action.type === DRILL) drills++;
+      labels.add(prevLabel);
+      // follow the "continue" path on lesson-transition queries
+      if (action.type === YGOTO) goto(action.payload.goto_label);
+      else if (action.type === NGOTO) skipLine();
+    }
+    return { drills, labels };
+  } catch {
+    return { drills: 0, labels: new Set([optionLabel]) };
+  } finally {
+    restoreParserState(saved);
+  }
+}

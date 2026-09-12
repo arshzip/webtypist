@@ -1,11 +1,12 @@
 <!-- TODO: Clean this up and break it into smaller components -->
 <script>
   import { onMount } from "svelte";
-  import { nextScriptAction, parse, setInputScript, goto, skipLine } from "../parser/script";
+  import { nextScriptAction, parse, setInputScript, goto, skipLine, getCurrentMenuLabel, getCurrentLabel, isScriptLoaded, analyzeSection } from "../parser/script";
   import { CLEAR, DRILL, ERROR_MAX_SET, EXIT, INSTRUCTION, MENU, NGOTO, QUERY, TUTORIAL, YGOTO } from "../constants/constants";
   import Menu from "./Menu.svelte";
   import BtiDisplay from "./BTIDisplay.svelte";
   import { title, instruction, responseFlag, text, practice } from "../stores/textstore";
+  import { progress, markLessonComplete, setLastPlayed, resetProgress } from "../stores/progress";
   import Query from "./Query.svelte";
   import Writebox from "./Writebox.svelte";
   import { setMaxError } from "../util/Typeutils";
@@ -17,6 +18,9 @@
   let prevAction;
   let showBti = true;
   let showMainMenu = true;
+  let currentFile = null; // file name of the loaded .typ (null for uploads)
+  let activeSections = []; // completion analysis of the menu currently displayed
+  let restoringHistory = false; // true while rendering a popstate navigation
   let qwertyTyps = [
     ["q2.typ", "Quick QWERTY (q) Series"],
     ["r2.typ", "Long QWERTY (r) Series"],
@@ -32,32 +36,96 @@
     ["d.typ", "Dvorak (d) Series"],
   ];
 
-  async function loadScript(script, local = false) {
+  async function loadScript(script, local = false, resumeLabel = null) {
     loadError = "";
     try {
       if (!local) {
         let resp = await fetch(`${script}`);
         if (!resp.ok) throw Error(`Couldn't load ${script} (HTTP ${resp.status})`);
+        currentFile = script;
         script = await resp.text();
+      } else {
+        currentFile = null; // uploads can't be keyed for progress/resume
       }
       setInputScript(script);
       showMainMenu = false;
       parse();
+      if (resumeLabel) {
+        try {
+          goto(resumeLabel);
+        } catch {
+          // label no longer exists — fall back to the script's first screen
+        }
+      }
       runTilBlocking();
     } catch (e) {
+      currentFile = null;
       // leave the previous lesson state intact and surface the error
       loadError = e.message || "Failed to load lesson";
       setInputScript("");
       showMainMenu = true;
       showBti = false;
       action = undefined;
+      pushMainState();
     }
   }
+
+  function exitToMainMenu() {
+    showMainMenu = true;
+    showBti = false;
+    loadError = "";
+    // the script is deliberately kept in memory so browser Back
+    // can re-open the series menu
+    pushMainState();
+  }
+
+  function pushMainState() {
+    if (restoringHistory) return;
+    if (history.state?.screen === "main") history.replaceState({ screen: "main" }, "");
+    else history.pushState({ screen: "main" }, "");
+  }
+
+  function pushMenuState(label) {
+    if (restoringHistory || !label) return;
+    const state = { screen: "script-menu", label };
+    if (history.state?.screen === "script-menu" && history.state.label === label) {
+      // re-entering the same menu (e.g. returning after a lesson)
+      // shouldn't pile up duplicate history entries
+      history.replaceState(state, "");
+    } else {
+      history.pushState(state, "");
+    }
+  }
+
+  function onPopState(e) {
+    restoringHistory = true;
+    try {
+      const state = e.state;
+      if (state && state.screen === "script-menu" && isScriptLoaded()) {
+        showMainMenu = false;
+        loadError = "";
+        try {
+          goto(state.label);
+          runTilBlocking();
+        } catch {
+          exitToMainMenu();
+        }
+      } else {
+        exitToMainMenu();
+      }
+    } finally {
+      restoringHistory = false;
+    }
+  }
+
   onMount(() => {
     showWarning = (window.innerHeight < 600 || window.innerWidth < 800)
     window.addEventListener("resize", () => {
       showWarning = (window.innerHeight < 600 || window.innerWidth < 800)
     })
+
+    history.replaceState({ screen: "main" }, "");
+    window.addEventListener("popstate", onPopState);
 
     document.addEventListener("keydown", (e) => {
       if (showMainMenu && e.key === 'f') {
@@ -71,6 +139,7 @@
 
     document.addEventListener("keypress", (e) => {
       if (e.key === "Enter" || e.key === "n") {
+        if (showMainMenu) return;
         // if action is drill or query or menu, let their event handlers handle the event
         if (action && (action.type === QUERY || action.type === DRILL || action.type === MENU)) {
           // do nothing
@@ -85,6 +154,7 @@
       fr.readAsText(this.files[0]);
     });
   });
+
   // gets next action and sets prevAction
   function nextAction() {
     prevAction = action;
@@ -107,18 +177,65 @@
     }
   }
 
+  // parses the option labels out of a buffered M: command
+  // (first line is the menu title, the rest are options)
+  function menuOptionLabels(menuStr) {
+    return menuStr
+      .split("\n")
+      .filter(Boolean)
+      .slice(1)
+      .map((line) => line.split('"')[0].trim());
+  }
+
+  // figures out, for every option of the displayed menu, how many
+  // drills its lesson contains and which labels belong to it
+  function buildSections(menuStr) {
+    if (!currentFile) return [];
+    const options = menuOptionLabels(menuStr);
+    return options.map((label) => ({
+      label,
+      passed: 0,
+      ...analyzeSection(label, options),
+    }));
+  }
+
+  // called by Writebox every time a drill is passed (not failed);
+  // a lesson counts as completed when all of its drills have been passed
+  function handleDrillPassed() {
+    if (!currentFile) return;
+    const section = activeSections.find((s) => s.labels.has(getCurrentLabel()));
+    if (!section || section.drills === 0) return;
+    section.passed += 1;
+    if (section.passed >= section.drills) {
+      markLessonComplete(currentFile, section.label);
+    }
+  }
+
+  function resumeLast() {
+    const last = $progress.last;
+    if (last?.file) loadScript(last.file, false, last.label);
+  }
+
+  function resetAll() {
+    if (confirm("Delete all saved progress? This cannot be undone.")) {
+      resetProgress();
+    }
+  }
+
+  $: hasProgress = Object.keys($progress.completed || {}).length > 0;
+
   // applies UI side effects of the action
   //
   function processAction() {
     switch (action.type) {
       case EXIT:
-        setInputScript("");
-        showMainMenu = true;
-        showBti = false;
+        exitToMainMenu();
         break;
 
       case MENU:
         showBti = false;
+        activeSections = buildSections(action.payload.menuStr);
+        pushMenuState(getCurrentMenuLabel());
         break;
 
       case CLEAR:
@@ -186,6 +303,11 @@ A screen bigger than 800x600 is recommended
 {/if}
 {#if showMainMenu}
   <h2>Welcome to webtypist!</h2>
+  {#if $progress.last}
+    <button class="resumeBtn" on:click={resumeLast}>
+      ▶ Continue: {$progress.last.text || $progress.last.label}
+    </button>
+  {/if}
   <h4>Select a series to continue (go with the first one if you're a beginner)</h4>
   {#if loadError}
     <p id="loadError">⚠ {loadError}</p>
@@ -239,15 +361,27 @@ A screen bigger than 800x600 is recommended
       </button>
     </a>
   </div>
+  {#if hasProgress}
+    <button class="inlineBtn resetBtn" on:click={resetAll}>Reset all progress</button>
+  {/if}
 {/if}
 {#if action}
   {#if showBti}
-    <BtiDisplay onComplete={runTilBlocking} {action} />
+    <BtiDisplay onComplete={runTilBlocking} {action} onExit={exitToMainMenu} />
   {/if}
   {#if action.type === MENU}
-    <Menu menuStr={action.payload.menuStr} onComplete={runTilBlocking} />
+    <Menu
+      menuStr={action.payload.menuStr}
+      onComplete={runTilBlocking}
+      fileName={currentFile}
+      onSelect={(label, text) => currentFile && setLastPlayed(currentFile, label, text)}
+      onExit={() => {
+        action = undefined;
+        exitToMainMenu();
+      }}
+    />
   {:else if action.type === DRILL}
-    <Writebox onComplete={runTilBlocking} />
+    <Writebox onComplete={runTilBlocking} onDrillPassed={handleDrillPassed} />
   {/if}
   {#if action.type === QUERY}
     <div class="modal">
@@ -258,6 +392,23 @@ A screen bigger than 800x600 is recommended
 
 
 <style>
+  .resumeBtn {
+    display: block;
+    margin: 0 0.5rem 0.75rem;
+    background-color: #0e2800;
+    border-color: #008400;
+  }
+  .resumeBtn:hover {
+    border-color: #00c800;
+  }
+  .resetBtn {
+    margin: 1rem 0.5rem;
+    opacity: 0.6;
+  }
+  .resetBtn:hover {
+    opacity: 1;
+    border-color: #db0000;
+  }
   #loadError {
     margin-left: 0.5rem;
     color: #ff6b6b;
