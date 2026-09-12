@@ -7,6 +7,9 @@
   let wc = wrongCharUtils();
   let failed = false;
   export let onComplete;
+  // called every time a drill is finished without failing
+  // (used for lesson completion tracking)
+  export let onDrillPassed = () => {};
   $: $text, handleTextChange();
   onMount(() => {
     reset();
@@ -33,22 +36,24 @@
   function startTest() {
     failed = false;
     if ($text.length > 0) {
+      ended.set(false);
       restart();
       started.set(true);
     }
   }
 
-  function restart(e) {
+  function restart() {
     wc.clear();
     charcounter.set(0);
     progbox.focus();
     typeFocus.set(true);
   }
 
-  function endTest(e) {
+  function endTest() {
     let now = new Date();
     endTimestamp.set(now);
-    let elapsed = (now.getTime() - $startTimestamp.getTime()) / 1000;
+    // guard against a 0s elapsed time (Infinity wpm)
+    let elapsed = Math.max((now.getTime() - $startTimestamp.getTime()) / 1000, 0.001);
     speed.set(Math.round(($size * 12) / elapsed));
     accuracy.set(1 - wc.count() / $size);
     prevTest.set({
@@ -60,6 +65,7 @@
       accuracy: $accuracy,
     });
     failed = !$practice && wc.count() / $size > $maxError;
+    if (!failed) onDrillPassed();
     // typist completed drill with nonpersistent error
     // set error as default for further drills
     if (!failed && !$persistError) {
@@ -164,7 +170,7 @@
       typeFocus.set(false);
     }}
     class="wordInput"
-    style="opacity: 0s; height:0; width: 0; outline: none; border: none"
+    style="height:0; width: 0; outline: none; border: none"
   />
   <Progressbox />
   {#if $started}

@@ -1,16 +1,25 @@
 <script>
   import { onMount } from "svelte";
     import { goto, hasPrevMenu, prevMenu } from "../parser/script";
+  import { progress } from "../stores/progress";
 
   export let menuStr;
   export let onComplete;
+  // exit to the webtypist main menu (shown on top-level script menus)
+  export let onExit = () => {};
+  // file name of the loaded script — used to look up completed lessons
+  export let fileName = null;
+  // called when the user picks an option (label, display text)
+  export let onSelect = null;
+
   let showBack = false;
   let highlighted = 0;
   $: menuStr, showBack = hasPrevMenu()
   $: menuLines = parseMenu(menuStr);
   // first line is the title of the menu
   $: menuOptions = menuLines.slice(1);
-  $: title = menuLines[0].content;
+  $: title = menuLines[0]?.content ?? "";
+  $: completedSet = new Set(Object.keys($progress?.completed?.[fileName] ?? {}));
 
 
   function getLabelAndContent(str) {
@@ -29,21 +38,40 @@
     return marr;
   }
 
-  function handleSelectOption(option) {
-    goto(option.label);
+  function goBack() {
+    prevMenu();
     onComplete();
+  }
+
+  function handleSelectOption(option) {
+    if (!option) return;
+    goto(option.label);
+    onSelect?.(option.label, option.content);
+    onComplete();
+  }
+
+  function moveHighlight(delta) {
+    const count = menuOptions.length;
+    if (count === 0) return;
+    highlighted = (highlighted + delta + count) % count;
   }
 
   onMount(() => {
     function handleNavKeys(e) {
       {
         if (e.key === "ArrowDown") {
-          highlighted = (highlighted + 1) % menuLines.length;
+          moveHighlight(1);
         } else if (e.key === "ArrowUp") {
-          highlighted = (highlighted - 1) % menuLines.length;
+          moveHighlight(-1);
         }
         else if (e.key === "Enter") {
           handleSelectOption(menuOptions[highlighted])
+        }
+        // Escape goes up one level: parent menu, or the main menu
+        // when this is a top-level script menu
+        else if (e.key === "Escape") {
+          if (showBack) goBack();
+          else onExit();
         }
       }
     }
@@ -53,23 +81,30 @@
 
 </script>
 {#if showBack}
-<button class="inlineBtn" on:click={() => {prevMenu(); onComplete()}}>← Back</button>
+<button class="inlineBtn" on:click={goBack}>← Back</button>
+{:else}
+<button class="inlineBtn" on:click={onExit}>← Main menu</button>
 {/if}
 <div>
   <h4>{title}</h4>
   {#each menuOptions as option, i}
+    <!-- Enter is handled by the document-level handler above; swallow it here
+         so a focused option doesn't get selected twice -->
     <a
-      on:keydown={(e) => e.key == "Enter" && handleSelectOption(option)}
       on:mouseover={() => (highlighted = i)}
       on:focus={() => (highlighted = i)}
+      on:keydown={(e) => {
+        if (e.key === "Enter") e.stopPropagation();
+      }}
       id="menuOption"
       tabindex="0"
       role="button"
       class="inlineBtn"
       class:highlighted={highlighted === i}
+      class:completed={completedSet.has(option.label)}
       on:click|preventDefault={() => {
         handleSelectOption(option);
-      }}><b>{option.content}</b></a
+      }}><b>{completedSet.has(option.label) ? "✓ " : ""}{option.content}</b></a
     >
   {/each}
 </div>
@@ -85,5 +120,8 @@
   }
   .highlighted {
     color: #b0b4ff;
+  }
+  .completed {
+    opacity: 0.55;
   }
 </style>

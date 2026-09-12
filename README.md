@@ -11,6 +11,8 @@ Give it a try here - [webtypist.vercel.app](https://webtypist.vercel.app)
 
 Webtypist is inspired by GNU typist (`gtypist`) and is capable of parsing and running `.typ` lessons built for GNU Typist. In other words, you can call it gtypist for the web.
 
+Your progress (completed lessons) is saved in your browser's local storage, and you can continue where you left off from the home screen.
+
 
 ## Lessons included
 - Quick QWERTY (q) Series
@@ -18,6 +20,7 @@ Webtypist is inspired by GNU typist (`gtypist`) and is capable of parsing and ru
 - Speed Drills (s) Series
 - Programmer (p) Series
 - QWERTY review (u) Series
+- QWERTY (t) Series
 - Numpad (n) Series
 - Colemak (c) Series
 - Dvorak (d) Series
