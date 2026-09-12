@@ -11,6 +11,7 @@
   import { setMaxError } from "../util/Typeutils";
 
   let showWarning = false;
+  let loadError = "";
   let file;
   let action;
   let prevAction;
@@ -32,14 +33,25 @@
   ];
 
   async function loadScript(script, local = false) {
-    if (!local) {
-      let resp = await fetch(`${script}`);
-      script = await resp.text();
+    loadError = "";
+    try {
+      if (!local) {
+        let resp = await fetch(`${script}`);
+        if (!resp.ok) throw Error(`Couldn't load ${script} (HTTP ${resp.status})`);
+        script = await resp.text();
+      }
+      setInputScript(script);
+      showMainMenu = false;
+      parse();
+      runTilBlocking();
+    } catch (e) {
+      // leave the previous lesson state intact and surface the error
+      loadError = e.message || "Failed to load lesson";
+      setInputScript("");
+      showMainMenu = true;
+      showBti = false;
+      action = undefined;
     }
-    setInputScript(script);
-    showMainMenu = false;
-    parse();
-    runTilBlocking();
   }
   onMount(() => {
     showWarning = (window.innerHeight < 600 || window.innerWidth < 800)
@@ -48,7 +60,13 @@
     })
 
     document.addEventListener("keydown", (e) => {
-      if (showMainMenu && e.key === 'f') document.querySelector("body").requestFullscreen();
+      if (showMainMenu && e.key === 'f') {
+        if (document.fullscreenElement) {
+          document.exitFullscreen().catch(() => {});
+        } else {
+          document.body.requestFullscreen().catch(() => {});
+        }
+      }
     })
 
     document.addEventListener("keypress", (e) => {
@@ -123,7 +141,7 @@
       case DRILL:
         // TUT text is cleared on drills for some reason
         // ref gtypist.c #540
-        if (prevAction.type === TUTORIAL) {
+        if (prevAction?.type === TUTORIAL) {
           instruction.set("");
         }
         text.set(action.payload.drillScript);
@@ -169,6 +187,9 @@ A screen bigger than 800x600 is recommended
 {#if showMainMenu}
   <h2>Welcome to webtypist!</h2>
   <h4>Select a series to continue (go with the first one if you're a beginner)</h4>
+  {#if loadError}
+    <p id="loadError">⚠ {loadError}</p>
+  {/if}
   <div class="select">
     {#each qwertyTyps as typ}
       <button
@@ -194,7 +215,6 @@ A screen bigger than 800x600 is recommended
   <div class="select">
     <button
       class="scriptButton more"
-      style="background-color: #004b53; box-shadow: 0px 0px 15px -3px #004b53"
       on:click={() => {
         loadScript("demo.typ");
       }}
@@ -205,18 +225,15 @@ A screen bigger than 800x600 is recommended
     >
     <button
       class="scriptButton more"
-      style="background-color: #004b53; box-shadow: 0px 0px 15px -3px #004b53"
       on:click={() => {
         file.click();
       }}
     >
-      <!-- <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-plus"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg> -->
       <img src="plus.svg" alt="plus icon" />
       <span>Upload your own .typ</span>
     </button>
-    <a href="https://github.com/arshzip/webtypist" target="_blank">
-      <button class="scriptButton more" style="background-color: #004b53; box-shadow: 0px 0px 15px -3px #004b53">
-        <!-- <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-plus"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg> -->
+    <a href="https://github.com/arshzip/webtypist" target="_blank" rel="noreferrer">
+      <button class="scriptButton more">
         <img src="github.svg" alt="github icon" />
         <span>Github</span>
       </button>
@@ -241,6 +258,10 @@ A screen bigger than 800x600 is recommended
 
 
 <style>
+  #loadError {
+    margin-left: 0.5rem;
+    color: #ff6b6b;
+  }
   .modal {
     position: fixed;
     height: 100vh;
@@ -270,6 +291,8 @@ A screen bigger than 800x600 is recommended
   }
   .more {
     height: 5rem;
+    background-color: #004b53;
+    box-shadow: 0px 0px 15px -3px #004b53;
   }
   h2,
   h4 {

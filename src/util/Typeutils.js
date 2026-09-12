@@ -1,5 +1,5 @@
 import { get } from "svelte/store";
-import { maxError, persistError, wrongChars, wrongCount } from "../stores/textstore";
+import { defaultMaxError, maxError, persistError, wrongChars, wrongCount } from "../stores/textstore";
 
 export const wrongCharUtils = () => {
   function add(charIndex) {
@@ -12,7 +12,7 @@ export const wrongCharUtils = () => {
     });
   }
   function clear() {
-    wrongCount.set(0)
+    wrongCount.set(0);
     wrongChars.set(new Set([]));
   }
   function count() {
@@ -27,6 +27,11 @@ export const wrongCharUtils = () => {
   return { add, clear, count, has, inc, remove };
 };
 
+// Parses gtypist "E:" arguments. Supported forms:
+//   "default"        reset to the default max error rate, non-persistent
+//   "4" / "4%"       4% max error for the next drill
+//   "5.0%*"          5% max error, persistent for the rest of the script
+//   "2.5 *"          same as above (classic gtypist spacing)
 export function setMaxError(errorStr) {
   errorStr = errorStr.trim();
   if (errorStr.toLowerCase() === "default") {
@@ -34,9 +39,8 @@ export function setMaxError(errorStr) {
     persistError.set(false);
     return;
   }
-  let arr = errorStr.split("%");
-  let errorPct = parseFloat(arr[0]) / 100;
-  let persistent = arr.length > 1 && arr[1] === "*";
+  const errorPct = parseFloat(errorStr) / 100;
+  if (Number.isNaN(errorPct)) return; // malformed E: line — keep current setting
   maxError.set(errorPct);
-  persistError.set(persistent);
+  persistError.set(/\*\s*$/.test(errorStr));
 }

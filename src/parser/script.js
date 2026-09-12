@@ -6,8 +6,8 @@ let global_index = 0;
 let global_label_index = new Map();
 let global_typeArr = [];
 let global_line = "";
-let prevLabel = ""
-let global_menu_history = []
+let prevLabel = "";
+let global_menu_history = [];
 
 function scrCommand(line) {
   if (line.length === 0) return "";
@@ -40,27 +40,23 @@ function bufferCommand() {
   return buffer;
 }
 
-function logLabelIndex() {
-  global_label_index.forEach((v, key) => {
-    console.log(key, v);
-  });
-}
-
 export function buildLabelIndex() {
   global_index = 0;
   while (!eof()) {
     getNextLine();
     if (scrCommand(global_line) === LABEL) {
-      // if global_label_index.has(scrData(global_line)) throw Error("repeated label!")
       global_label_index.set(scrData(global_line).trim(), global_index);
     }
   }
+  // reset to the start of the script; global_line must be cleared too,
+  // otherwise the first action would be built from the *last* line
+  // of the script (matters for scripts without a trailing newline)
   global_index = 0;
+  global_line = "";
 }
 
 export function parse() {
   buildLabelIndex();
-  // logLabelIndex();
 }
 
 function getLabelIndex(label) {
@@ -72,14 +68,12 @@ function getLabelIndex(label) {
 // gets next non-empty noncomment line
 function getNextLine() {
   if (eof()) {
-    // console.log("Reached EOF, exiting");
-    return global_index;
+    return "";
   }
   let command;
   do {
     global_line = global_typeArr[global_index].trimEnd();
     command = scrCommand(global_line);
-    // global_prev_index = global_index;
     global_index++;
   } while (isSkipped(command) && !eof());
 
@@ -89,11 +83,9 @@ function getNextLine() {
   return global_line;
 }
 
-
 // if G: command then called without argument (with script action loop)
 // then the label is read from the current line
-// if called by user navigation, label argument
-// is supplied
+// if called by user navigation, label argument is supplied
 export function goto(label = undefined) {
   if (!label) label = scrData(global_line);
   let index = getLabelIndex(label);
@@ -103,25 +95,31 @@ export function goto(label = undefined) {
   getNextLine();
 }
 
-
+// returns to the menu the current lesson was started from.
+// no-op when there is no menu to go back to.
 export function backToMenu() {
+  if (!canBackToMenu()) return;
   let label = global_menu_history.pop();
-  goto(label)
+  goto(label);
+}
+
+export function canBackToMenu() {
+  return global_menu_history.length > 0;
 }
 
 export function hasPrevMenu() {
-  return global_menu_history.length > 1
+  return global_menu_history.length > 1;
 }
 
 export function prevMenu() {
   if (!hasPrevMenu()) return;
   global_menu_history.pop();
   let label = global_menu_history.pop();
-  goto(label)
+  goto(label);
 }
 
 // gets and returns the next action to take
-// only called externally 
+// only called externally
 export function nextScriptAction() {
   while (!eof()) {
     let command = scrCommand(global_line);
@@ -130,7 +128,7 @@ export function nextScriptAction() {
     switch (command) {
       case MENU:
         buf = bufferCommand();
-        global_menu_history.push(prevLabel)
+        global_menu_history.push(prevLabel);
         return { type: MENU, payload: { menuStr: buf } };
 
       case CLEAR:
@@ -172,8 +170,12 @@ export function nextScriptAction() {
       case ERROR_MAX_SET:
         buf = bufferCommand();
         return { type: ERROR_MAX_SET, payload: { errorStr: buf } };
+
+      case EXIT:
+        return { type: EXIT };
+
       case LABEL:
-        prevLabel = scrData(global_line).trim()
+        prevLabel = scrData(global_line).trim();
         getNextLine();
         break;
       default:
@@ -189,6 +191,8 @@ export function setInputScript(script) {
   global_label_index = new Map();
   global_typeArr = [];
   global_line = "";
+  prevLabel = "";
+  global_menu_history = [];
   global_typeArr = script.split("\n");
 }
 

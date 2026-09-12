@@ -18,6 +18,7 @@ Webtypist is inspired by GNU typist (`gtypist`) and is capable of parsing and ru
 - Speed Drills (s) Series
 - Programmer (p) Series
 - QWERTY review (u) Series
+- QWERTY (t) Series
 - Numpad (n) Series
 - Colemak (c) Series
 - Dvorak (d) Series
