@@ -71,6 +71,9 @@
   }
 
   function exitToMainMenu() {
+    // drop the current script action so no lesson UI stays rendered
+    action = undefined;
+    prevAction = undefined;
     showMainMenu = true;
     showBti = false;
     loadError = "";
@@ -229,7 +232,12 @@
   function processAction() {
     switch (action.type) {
       case EXIT:
-        exitToMainMenu();
+        // script ended — back to the main menu. action intentionally
+        // stays EXIT (which renders nothing) because runTilBlocking is
+        // still on the stack and checks it right after processAction
+        showMainMenu = true;
+        showBti = false;
+        pushMainState();
         break;
 
       case MENU:
@@ -375,10 +383,7 @@ A screen bigger than 800x600 is recommended
       onComplete={runTilBlocking}
       fileName={currentFile}
       onSelect={(label, text) => currentFile && setLastPlayed(currentFile, label, text)}
-      onExit={() => {
-        action = undefined;
-        exitToMainMenu();
-      }}
+      onExit={exitToMainMenu}
     />
   {:else if action.type === DRILL}
     <Writebox onComplete={runTilBlocking} onDrillPassed={handleDrillPassed} />
